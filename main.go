@@ -9,24 +9,68 @@ import (
 )
 
 type ProductData struct {
-	Name        string                 `json:"name"`
-	Price       int                    `json:"price"`
-	OldPrice    int                    `json:"old_price"`
-	Size        []map[string]interface{} `json:"size"`
-	Description string                 `json:"description"`
-	Color       []map[string]interface{} `json:"color"`
-	Article     string                 `json:"article"`
-	ProductURL  []string               `json:"product_url"`
-	Category    string                 `json:"category"`
-	ProductID   int                    `json:"product_id"`
-	Composition string                 `json:"composition"`
-	Care        string                 `json:"care"`
+	Name        string        `json:"name"`
+	Price       int           `json:"price"`
+	OldPrice    int           `json:"old_price"`
+	Size        []Size        `json:"size"`
+	Count 		[]Stock `json:"stock"`
+	Description string        `json:"description"`
+	Color       []Color       `json:"color"`
+	Article     string        `json:"article"`
+	ProductURL  []string      `json:"product_url"`
+	Category    string        `json:"category"`
+	ProductID   int           `json:"product_id"`
+	Composition string        `json:"composition"`
+	Care        string        `json:"care"`
+	Medias      []string      `json:"medias"`
+}
+
+type Size struct {
+	Value string `json:"value"`
+
+}
+type Stock struct{
+		Online int `json:"online"`
+	Offline int `json:"offline"`
+}
+type Color struct {
+
+	Name     string `json:"name"`
+}
+
+type Product struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Code string `json:"code"`
+	Article     string   `json:"article"`
+	Composition string   `json:"composition"`
+	Care        string   `json:"care"`
+	ProductID   int      `json:"id"` 
+	Models      []Model  `json:"models"`
+}
+
+type Model struct {
+	Code string			`json:"code"`
+	Category string   `json:"category"`
+	Medias   []Media  `json:"medias"`
+	Skus     []Sku    `json:"skus"`
+	Color    Color    `json:"color"`
+}
+
+type Media struct {
+	URLs string `json:"url"`
+}
+
+type Sku struct {
+	Price    int    `json:"price"`
+	OldPrice int    `json:"old_price"`
+	Size     Size   `json:"size"`
+	Stock Stock `json:"stock"`
 }
 
 func main() {
-	// Список ссылок для парсинга
 	urls := []string{
-		"https://lime-shop.com/api/section/outerwear?page=%d&page_size=30",
+"https://lime-shop.com/api/section/outerwear?page=%d&page_size=30",
 		"https://lime-shop.com/api/section/knitwear?page=%d&page_size=30",
     "https://lime-shop.com/api/section/blazers?page=%d&page_size=30",
     "https://lime-shop.com/api/section/waistcoats?page=%d&page_size=30",
@@ -64,7 +108,7 @@ func main() {
 	var wg sync.WaitGroup
 	productChan := make(chan ProductData, 100)
 
-	// Запуск горутин для каждой ссылки
+
 	for _, urlTemplate := range urls {
 		for page := 1; page <= 7; page++ {
 			wg.Add(1)
@@ -76,38 +120,34 @@ func main() {
 		}
 	}
 
-	// Закрытие канала после завершения всех горутин
 	go func() {
 		wg.Wait()
 		close(productChan)
 	}()
 
-	// Сбор результатов из канала
+
 	var products []ProductData
 	for product := range productChan {
 		products = append(products, product)
 	}
 
-	// Сериализация результатов в JSON
 	jsonData, err := json.MarshalIndent(products, "", "  ")
 	if err != nil {
 		fmt.Println("Error marshalling JSON:", err)
 		return
 	}
 
-	// Сохранение результатов в файл
 	err = ioutil.WriteFile("products.json", jsonData, 0644)
 	if err != nil {
 		fmt.Println("Error writing JSON to file:", err)
 		return
 	}
 
-	// Вывод результатов
 	fmt.Println("Data saved to products.json")
 }
 
 func parseURL(url string, productChan chan<- ProductData) {
-	// Выполнение HTTP-запроса
+
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Printf("Error making HTTP request for URL %s: %v\n", url, err)
@@ -115,212 +155,65 @@ func parseURL(url string, productChan chan<- ProductData) {
 	}
 	defer resp.Body.Close()
 
-	// Чтение тела ответа
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Error reading response body for URL %s: %v\n", url, err)
 		return
 	}
 
-	// Десериализация JSON
-	var data map[string]interface{}
+	var data struct {
+		Items []struct {
+			Cells []struct {
+				Entity Product `json:"entity"`
+			} `json:"cells"`
+		} `json:"items"`
+	}
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		fmt.Printf("Error unmarshalling JSON for URL %s: %v\n", url, err)
 		return
 	}
 
-	// Проверка наличия ключа "items"
-	items, ok := data["items"].([]interface{})
-	if !ok {
-		fmt.Printf("Key 'items' not found or not a slice for URL %s\n", url)
-		return
-	}
+	for _, item := range data.Items {
+		for _, cell := range item.Cells {
+			for _, model := range cell.Entity.Models {
+				for _, sku := range model.Skus {
+					productURL := generateProductURL(cell.Entity.Code, model.Code)
 
-	// Извлечение данных
-	for _, item := range items {
-		cells, ok := item.(map[string]interface{})["cells"].([]interface{})
-		if !ok {
-			fmt.Printf("Key 'cells' not found or not a slice for item in URL %s\n", url)
-			continue
-		}
 
-		for _, cell := range cells {
-			product, ok := cell.(map[string]interface{})["entity"].(map[string]interface{})
-			if !ok {
-				fmt.Printf("Key 'entity' not found or not a map for cell in URL %s\n", url)
-				continue
-			}
-
-			models, ok := product["models"].([]interface{})
-			if !ok || len(models) == 0 {
-				fmt.Printf("Key 'models' not found or empty for product in URL %s\n", url)
-				continue
-			}
-
-			for _, model := range models {
-				modelMap, ok := model.(map[string]interface{})
-				if !ok {
-					fmt.Printf("Model is not a map for product in URL %s\n", url)
-					continue
-				}
-
-				skus, ok := modelMap["skus"].([]interface{})
-				if !ok || len(skus) == 0 {
-					fmt.Printf("Key 'skus' not found or empty for model in URL %s\n", url)
-					continue
-				}
-
-				sku := skus[0].(map[string]interface{})
-
-				// Проверка наличия ключа "medias"
-				medias, ok := modelMap["medias"].([]interface{})
-				if !ok {
-					fmt.Printf("Key 'medias' not found or not a slice for model in URL %s\n", url)
-					continue
-				}
-
-				var photoURLs []string
-				for _, media := range medias {
-					mediaMap, ok := media.(map[string]interface{})
-					if !ok {
-						fmt.Printf("Media is not a map for model in URL %s\n", url)
-						continue
+					productData := ProductData{
+						Name:        cell.Entity.Name,
+						Price:       sku.Price,
+						OldPrice:    sku.OldPrice,
+						Size:        []Size{sku.Size},
+						Count: 		 []Stock{sku.Stock},
+						Description: cell.Entity.Description,
+						Color:       []Color{model.Color},
+						Article:     cell.Entity.Article,
+						ProductURL:  []string{productURL},
+						Category:    model.Category,
+						ProductID:   cell.Entity.ProductID, 
+						Composition: cell.Entity.Composition,
+						Care:        cell.Entity.Care,
+						Medias:      getMediaURLs(model.Medias),
 					}
 
-					mediaURL, ok := mediaMap["url"].(string)
-					if !ok {
-						fmt.Printf("Key 'url' not found or not a string in 'media' for model in URL %s\n", url)
-						continue
-					}
-
-					photoURLs = append(photoURLs, mediaURL)
+					productChan <- productData
+					
 				}
-
-				// Проверка наличия ключей "name", "price", "old_price", "description", "article", "category", "id", "composition", "care"
-				name, ok := product["name"].(string)
-				if !ok {
-					fmt.Printf("Key 'name' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				price, ok := sku["price"].(float64)
-				if !ok {
-					fmt.Printf("Key 'price' not found or not a float64 for SKU in URL %s\n", url)
-					continue
-				}
-
-				// Проверка наличия ключа "old_price"
-				var oldPrice float64
-				if oldPriceVal, ok := sku["old_price"].(float64); ok {
-					oldPrice = oldPriceVal
-				} else {
-					oldPrice = 0 // Устанавливаем значение по умолчанию, если ключ отсутствует
-				}
-
-				description, ok := product["description"].(string)
-				if !ok {
-					fmt.Printf("Key 'description' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				article, ok := product["article"].(string)
-				if !ok {
-					fmt.Printf("Key 'article' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				category, ok := modelMap["category"].(string)
-				if !ok {
-					fmt.Printf("Key 'category' not found or not a string for model in URL %s\n", url)
-					continue
-				}
-
-				productID, ok := product["id"].(float64)
-				if !ok {
-					fmt.Printf("Key 'id' not found or not a float64 for product in URL %s\n", url)
-					continue
-				}
-
-				composition, ok := product["composition"].(string)
-				if !ok {
-					fmt.Printf("Key 'composition' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				care, ok := product["care"].(string)
-				if !ok {
-					fmt.Printf("Key 'care' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				// Извлечение полей "product.code" и "models.code"
-				productCode, ok := product["code"].(string)
-				
-				if !ok {
-					fmt.Printf("Key 'code' not found or not a string for product in URL %s\n", url)
-					continue
-				}
-
-				modelCode, ok := modelMap["code"].(string)
-				
-				if !ok {
-					fmt.Printf("Key 'code' not found or not a string for model in URL %s\n", url)
-					continue
-				}
-
-
-
-				// Генерация ссылки на продукт
-				productURL := generateProductURL(productCode, modelCode)
-
-				// Извлечение данных
-				productData := ProductData{
-					Name:        name,
-					Price:       int(price),
-					OldPrice:    int(oldPrice),
-					Size:        getSizes(skus),
-					Description: description,
-					Color:       getColors(models),
-					Article:     article,
-					ProductURL:  []string{productURL}, // Добавляем сгенерированную ссылку
-					Category:    category,
-					ProductID:   int(productID),
-					Composition: composition,
-					Care:        care,
-				}
-
-				// Отправка данных в канал
-				productChan <- productData
 			}
 		}
 	}
 }
 
-func getSizes(skus []interface{}) []map[string]interface{} {
-	var sizes []map[string]interface{}
-	for _, sku := range skus {
-		size := sku.(map[string]interface{})["size"].(map[string]interface{})
-		sizes = append(sizes, map[string]interface{}{
-			"value": size["value"],
-			"stock": sku.(map[string]interface{})["stock"],
-		})
+func getMediaURLs(medias []Media) []string {
+	var urls []string
+	for _, media := range medias {
+		urls = append(urls, media.URLs)
 	}
-	return sizes
-}
-
-func getColors(models []interface{}) []map[string]interface{} {
-	var colors []map[string]interface{}
-	for _, model := range models {
-		color := model.(map[string]interface{})["color"].(map[string]interface{})
-		colors = append(colors, map[string]interface{}{
-			"unique_id": model.(map[string]interface{})["id"],
-			"name":      color["name"],
-		})
-	}
-	return colors
+	return urls
 }
 
 func generateProductURL(productCode string, modelCode string) string {
-	return fmt.Sprintf("https://lime-shop.com/api/v2/product/%s?id=%s&force=false&model=false&color=%s", productCode, productCode, modelCode)
+	return fmt.Sprintf("https://lime-shop.com/api/v2/product/%s?id=%s&force=false&model=%s", productCode, productCode, modelCode)
 }
