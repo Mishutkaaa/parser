@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// Определяем структуру данных для десериализации JSON-ответа
+
 type Category struct {
 	URL   string     `json:"url"`
 	Items []Category `json:"items"`
@@ -103,9 +103,8 @@ func main() {
 			url = strings.Replace(url, "catalog", "section", 1)
 			fmt.Println("Replaced URL:", url)
 
-			for page := 1; page <= 1; page++ {
+			for page := 1; page <= 7; page++ {
 				newURL := generateCatalogURL(url, page)
-				fmt.Println("Generated catalog URL:", newURL)
 				codes, err := getProductCodes(newURL)
 				if err != nil {
 					fmt.Println("Error getting product codes:", err)
@@ -113,11 +112,9 @@ func main() {
 				}
 				fmt.Println("Product codes from", newURL, ":")
 				for _, code := range codes {
-					fmt.Println("Code:", code.Code)
 					for _, model := range code.Models {
 						fmt.Println("  Model Code:", model.Code, "Color Code:", model.Color.Name)
 						productURL := generateProductURL(code.Code, model.Code)
-						fmt.Println("Generated product URL:", productURL)
 						if strings.Contains(productURL, "#gift") {
 							fmt.Println("Skipping URL containing '#gift':", productURL)
 							continue
