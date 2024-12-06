@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 
@@ -59,23 +60,30 @@ type Stock struct {
 }
 
 type ProductData struct {
-	Name        string   `json:"name"`
-	Price       int      `json:"price"`
-	Composition string   `json:"composition"`
-	OldPrice    int      `json:"old_price"`
-	Size        []Size   `json:"size"`
-	Stock       []Stock  `json:"stock"`
-	Description string   `json:"description"`
-	Color       []Color  `json:"color"`
-	Article     string   `json:"article"`
-	ProductURL  []string `json:"product_url"`
-	Category    string   `json:"category"`
-	ProductID   int      `json:"product_id"`
-	Care        string   `json:"care"`
-	Medias      []string `json:"medias"`
+	Name        string            `json:"name"`
+	Price       int               `json:"price"`
+	Composition string            `json:"composition"`
+	OldPrice    *int              `json:"old_price"`
+	SizeStock   []SizeStock       `json:"size_stock"`
+	Description string            `json:"description"`
+	Colors      []string          `json:"colors"`
+	Article     string            `json:"article"`
+	ProductURL  string            `json:"product_url"`
+	Category    string            `json:"category"`
+	ProductID   int               `json:"product_id"`
+	Care        string            `json:"care"`
+	Medias      []string          `json:"medias"`
+}
+
+type SizeStock struct {
+	Size  string `json:"size"`
+	Unit  string `json:"unit"`
+	Stock int    `json:"stock"`
 }
 
 func main() {
+	start := time.Now()
+
 	menuURLs := []string{
 		"https://lime-shop.com/api/menu/left_women",
 		"https://lime-shop.com/api/menu/left_kids",
@@ -91,18 +99,10 @@ func main() {
 			fmt.Println("Error getting category URLs:", err)
 			continue
 		}
-		fmt.Println("URLs from", menuURL, ":")
-		for _, url := range urls {
-			fmt.Println(url)
-		}
 
 
 		for _, url := range urls {
-			fmt.Println("Processing URL:", url)
-
 			url = strings.Replace(url, "catalog", "section", 1)
-			fmt.Println("Replaced URL:", url)
-
 			for page := 1; page <= 7; page++ {
 				newURL := generateCatalogURL(url, page)
 				codes, err := getProductCodes(newURL)
@@ -110,15 +110,13 @@ func main() {
 					fmt.Println("Error getting product codes:", err)
 					continue
 				}
-				fmt.Println("Product codes from", newURL, ":")
 				for _, code := range codes {
 					for _, model := range code.Models {
-						fmt.Println("  Model Code:", model.Code, "Color Code:", model.Color.Name)
 						productURL := generateProductURL(code.Code, model.Code)
 						if strings.Contains(productURL, "#gift") {
-							fmt.Println("Skipping URL containing '#gift':", productURL)
 							continue
 						}
+
 						wg.Add(1)
 						go func(url string) {
 							defer wg.Done()
@@ -158,6 +156,9 @@ func main() {
 	}
 
 	fmt.Println("Data saved to products.json")
+
+	elapsed := time.Since(start)
+	fmt.Printf("Program execution time: %s\n", elapsed)
 }
 
 func getCategoryURLs(url string) ([]string, error) {
@@ -271,20 +272,27 @@ func parseURL(url string, productChan chan<- ProductData) {
 		Composition: item.Composition,
 		Care:        item.Care,
 		ProductID:   item.ProductID,
-		ProductURL:  []string{url}, 
 	}
 
 	for _, model := range item.Models {
 		productData.Category = model.Category
 		productData.Medias = getMediaURLs(model.Medias)
-		productData.Color = append(productData.Color, model.Color)
+		productData.Colors = append(productData.Colors, model.Color.Name)
 
 		for _, sku := range model.Skus {
-			productData.Size = append(productData.Size, sku.Size)
-			productData.Stock = append(productData.Stock, sku.Stock)
+			sizeStock := SizeStock{
+				Size:  sku.Size.Value,
+				Unit:  "шт", 
+				Stock: sku.Stock.Online + sku.Stock.Offline,
+			}
+			productData.SizeStock = append(productData.SizeStock, sizeStock)
 			productData.Price = sku.Price
-			productData.OldPrice = sku.OldPrice
+			if sku.OldPrice > 0 {
+				productData.OldPrice = &sku.OldPrice
+			}
 		}
+
+		productData.ProductURL = generateLandingURL(item.Code, model.Code)
 	}
 
 	productChan <- productData
@@ -296,4 +304,8 @@ func getMediaURLs(medias []Media) []string {
 		urls = append(urls, media.URL)
 	}
 	return urls
+}
+
+func generateLandingURL(productCode string, colorCode string) string {
+	return fmt.Sprintf("https://lime-shop.com/product/%s-%s", productCode, colorCode)
 }
