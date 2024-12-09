@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 type Category struct {
 	URL   string     `json:"url"`
 	Items []Category `json:"items"`
@@ -44,10 +43,12 @@ type Media struct {
 }
 
 type Sku struct {
+	Id int `json:"id"`
 	Price    int   `json:"price"`
 	OldPrice int   `json:"old_price"`
 	Size     Size  `json:"size"`
 	Stock    Stock `json:"stock"`
+	Sku      string `json:"sku"`
 }
 
 type Size struct {
@@ -64,9 +65,8 @@ type ProductData struct {
 	Price       int               `json:"price"`
 	Composition string            `json:"composition"`
 	OldPrice    *int              `json:"old_price"`
-	SizeStock   []SizeStock       `json:"size_stock"`
 	Description string            `json:"description"`
-	Colors      []string          `json:"colors"`
+	Colors      []ColorData       `json:"colors"`
 	Article     string            `json:"article"`
 	ProductURL  string            `json:"product_url"`
 	Category    string            `json:"category"`
@@ -75,7 +75,13 @@ type ProductData struct {
 	Medias      []string          `json:"medias"`
 }
 
+type ColorData struct {
+	Name      string      `json:"name"`
+	SizeStock []SizeStock `json:"size_stock"`
+}
+
 type SizeStock struct {
+	Id    int    `json:"id"`
 	Size  string `json:"size"`
 	Unit  string `json:"unit"`
 	Stock int    `json:"stock"`
@@ -85,9 +91,10 @@ func main() {
 	start := time.Now()
 
 	menuURLs := []string{
-		"https://lime-shop.com/api/menu/left_women",
 		"https://lime-shop.com/api/menu/left_kids",
+		"https://lime-shop.com/api/menu/left_women",
 		"https://lime-shop.com/api/menu/left_men",
+
 	}
 
 	var wg sync.WaitGroup
@@ -99,7 +106,6 @@ func main() {
 			fmt.Println("Error getting category URLs:", err)
 			continue
 		}
-
 
 		for _, url := range urls {
 			url = strings.Replace(url, "catalog", "section", 1)
@@ -273,25 +279,26 @@ func parseURL(url string, productChan chan<- ProductData) {
 		Care:        item.Care,
 		ProductID:   item.ProductID,
 	}
-
 	for _, model := range item.Models {
 		productData.Category = model.Category
 		productData.Medias = getMediaURLs(model.Medias)
-		productData.Colors = append(productData.Colors, model.Color.Name)
-
+		colorData := ColorData{
+			Name: model.Color.Name,
+		}
 		for _, sku := range model.Skus {
 			sizeStock := SizeStock{
+				Id:    sku.Id,
 				Size:  sku.Size.Value,
-				Unit:  "шт", 
+				Unit:  "шт",
 				Stock: sku.Stock.Online + sku.Stock.Offline,
 			}
-			productData.SizeStock = append(productData.SizeStock, sizeStock)
+			colorData.SizeStock = append(colorData.SizeStock, sizeStock)
 			productData.Price = sku.Price
 			if sku.OldPrice > 0 {
 				productData.OldPrice = &sku.OldPrice
 			}
 		}
-
+		productData.Colors = append(productData.Colors, colorData)
 		productData.ProductURL = generateLandingURL(item.Code, model.Code)
 	}
 
@@ -307,5 +314,5 @@ func getMediaURLs(medias []Media) []string {
 }
 
 func generateLandingURL(productCode string, colorCode string) string {
-	return fmt.Sprintf("https://lime-shop.com/product/%s-%s", productCode, colorCode)
+	return fmt.Sprintf("https://lime-shop.com/ru_ru/product/%s-%s", productCode, colorCode)
 }
